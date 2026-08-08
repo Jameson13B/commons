@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
+import { collection, onSnapshot, query, where } from "firebase/firestore"
 import {
   ArrowLeft,
   Check,
@@ -10,19 +10,19 @@ import {
   Send,
   UserPlus,
   Users,
-} from 'lucide-react'
-import { db } from '@/lib/firebase'
-import { useAuth } from '@/hooks/useAuth'
-import { hasAtLeast, ROLE_LABELS } from '@/config/roles'
-import { brand } from '@/config/brand'
-import type { UserProfile } from '@/lib/types'
-import { initials, roleBadgeVariant } from '@/lib/user'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Spinner } from '@/components/ui/spinner'
+} from "lucide-react"
+import { db } from "@/lib/firebase"
+import { useAuth } from "@/hooks/useAuth"
+import { hasAtLeast, ROLE_LABELS } from "@/config/roles"
+import { brand } from "@/config/brand"
+import type { UserProfile } from "@/lib/types"
+import { initials, roleBadgeVariant } from "@/lib/user"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Dialog,
   DialogContent,
@@ -31,29 +31,30 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from "@/components/ui/dialog"
 
-const USERS_COLLECTION = 'users'
+const USERS_COLLECTION = "users"
 
 /** Best-effort check for a device that can actually open an `sms:` link. */
 function canSendSms(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const ua = navigator.userAgent || ''
+  if (typeof navigator === "undefined") return false
+  const ua = navigator.userAgent || ""
   const isMobileUA =
     /Android|iPhone|iPad|iPod|Windows Phone|webOS|BlackBerry|Mobile/i.test(ua)
   // iPadOS 13+ reports a desktop UA but exposes touch points.
   const isTouchMac =
-    navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1
   return isMobileUA || isTouchMac
 }
 
 function InviteDialog() {
+  const { profile } = useAuth()
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [smsAvailable] = useState(canSendSms)
 
   const link = `${window.location.origin}/login`
-  const message = `You're invited to join ${brand.name}. Sign in with your phone to get started: ${link}`
+  const message = `${profile?.displayName} is inviting you to join ${brand.name}. Sign in with your phone to get started: ${link}`
   const smsHref = `sms:?&body=${encodeURIComponent(message)}`
 
   async function copyLink() {
@@ -179,15 +180,15 @@ export function Directory() {
   const [members, setMembers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState("")
 
-  const canSeePhone = hasAtLeast(profile?.role, 'moderator')
+  const canSeePhone = hasAtLeast(profile?.role, "moderator")
 
   useEffect(() => {
     // Only approved members are listed in the directory.
     const q = query(
       collection(db, USERS_COLLECTION),
-      where('status', '==', 'active'),
+      where("status", "==", "active"),
     )
     const unsub = onSnapshot(
       q,
@@ -195,7 +196,7 @@ export function Directory() {
         const rows = snap.docs.map((d) => d.data() as UserProfile)
         rows.sort((a, b) =>
           a.displayName.localeCompare(b.displayName, undefined, {
-            sensitivity: 'base',
+            sensitivity: "base",
           }),
         )
         setMembers(rows)
@@ -203,7 +204,7 @@ export function Directory() {
       },
       (err) => {
         console.error(err)
-        setError('Could not load the directory. Check your access level.')
+        setError("Could not load the directory. Check your access level.")
         setLoading(false)
       },
     )
@@ -230,8 +231,8 @@ export function Directory() {
             Member Directory
           </h1>
           <p className="mt-1 text-muted-foreground">
-            {members.length} {members.length === 1 ? 'member' : 'members'} in the
-            community.
+            {members.length} {members.length === 1 ? "member" : "members"} in
+            the community.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -253,17 +254,19 @@ export function Directory() {
           <Spinner /> Loading members...
         </div>
       ) : error ? (
-        <Card className="p-10 text-center text-sm text-destructive">{error}</Card>
+        <Card className="p-10 text-center text-sm text-destructive">
+          {error}
+        </Card>
       ) : filtered.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 p-12 text-center">
           <Users className="size-6 text-muted-foreground" />
           <p className="font-medium">
-            {search ? 'No members match your search' : 'No members yet'}
+            {search ? "No members match your search" : "No members yet"}
           </p>
           <p className="text-sm text-muted-foreground">
             {search
-              ? 'Try a different name.'
-              : 'Approved members will appear here.'}
+              ? "Try a different name."
+              : "Approved members will appear here."}
           </p>
         </Card>
       ) : (
