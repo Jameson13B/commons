@@ -1,0 +1,10 @@
+# Netlify configuration (default deploy target for Commons).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback: let React Router handle client-side routes.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

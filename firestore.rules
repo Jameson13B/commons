@@ -1,0 +1,102 @@
+rules_version = '2';
+
+// Commons Firestore security rules.
+// Model: every member has a doc at users/{uid} with a `role` and `status`.
+// - Members can read their own profile and edit only their display name.
+// - Moderators+ can read all profiles (for future directory/moderation tools).
+// - Only admins can change roles/status or delete members.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function myRole() {
+      return isSignedIn() ? userData(request.auth.uid).role : 'guest';
+    }
+
+    function myStatus() {
+      return isSignedIn() ? userData(request.auth.uid).status : 'pending';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myRole() == 'admin' && myStatus() == 'active';
+    }
+
+    function isModerator() {
+      return isSignedIn()
+        && (myRole() == 'moderator' || myRole() == 'admin')
+        && myStatus() == 'active';
+    }
+
+    // Any approved (active) member, i.e. not a pending guest. Used by the
+    // Member Directory so members can see each other.
+    function isActiveMember() {
+      return isSignedIn() && myStatus() == 'active' && myRole() != 'guest';
+    }
+
+    match /users/{uid} {
+      // Read your own profile; approved members can read everyone (directory).
+      allow read: if isSignedIn() && (request.auth.uid == uid || isActiveMember());
+
+      // New users self-provision as guest/pending only (no privilege escalation).
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'guest'
+        && request.resource.data.status == 'pending';
+
+      // Admins can change anything. Owners may edit their profile but NOT
+      // their own role or status.
+      allow update: if isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // Announcements: readable by any approved member; only moderators/admins
+    // can post, edit, or remove them.
+    match /announcements/{id} {
+      allow read: if isActiveMember();
+      allow create: if isModerator()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 140
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 5000;
+      allow update: if isModerator();
+      allow delete: if isModerator();
+    }
+
+    // Events: readable by any approved member; only moderators/admins can
+    // schedule, edit, or cancel them.
+    match /events/{id} {
+      allow read: if isActiveMember();
+      allow create: if isModerator()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 140
+        && request.resource.data.location is string
+        && request.resource.data.location.size() <= 200
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 5000
+        && request.resource.data.startAt is timestamp;
+      allow update: if isModerator();
+      allow delete: if isModerator();
+    }
+
+    // Future community modules add their own collections/rules below.
+  }
+}
