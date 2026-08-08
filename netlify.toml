@@ -3,6 +3,10 @@
   command = "npm run build"
   publish = "dist"
 
+# Vite 8 needs a modern Node; pin it so Netlify's default can't break builds.
+[build.environment]
+  NODE_VERSION = "22"
+
 # SPA fallback: let React Router handle client-side routes.
 [[redirects]]
   from = "/*"
