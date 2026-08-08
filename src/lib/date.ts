@@ -96,3 +96,20 @@ export function isPast(start: Timestamp | null | undefined): boolean {
   if (!start) return false
   return start.toDate().getTime() < Date.now()
 }
+
+const dateOnlyFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+
+/** Medium date without time, e.g. "Aug 7, 2026". */
+export function formatDateOnly(ts: Timestamp | null | undefined): string {
+  if (!ts) return 'Undated'
+  return dateOnlyFmt.format(ts.toDate())
+}
+
+/**
+ * Convert a Date into the `YYYY-MM-DD` string expected by a
+ * `<input type="date">`, in the browser's local time zone.
+ */
+export function toDateInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}

@@ -9,21 +9,12 @@ import { ArrowLeft, Phone, ShieldCheck } from 'lucide-react'
 import { auth, isFirebaseConfigured } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { brand } from '@/config/brand'
+import { toE164 } from '@/lib/phone'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { BrandMark } from '@/components/layout/BrandMark'
-
-/** Normalize user input to an E.164 phone number (best-effort, US default). */
-function toE164(raw: string): string {
-  const trimmed = raw.trim()
-  const digits = trimmed.replace(/[^\d]/g, '')
-  if (trimmed.startsWith('+')) return `+${digits}`
-  // Assume US/Canada if the caller omitted a country code.
-  if (digits.length === 10) return `+1${digits}`
-  return `+${digits}`
-}
 
 /** Turn a Firebase auth error into an actionable, human-friendly message. */
 function describeAuthError(err: unknown): string {

@@ -71,7 +71,6 @@ export const MODULES: ModuleEntry[] = [
     icon: Gamepad2,
     minRole: "member",
     accent: "text-teal-500",
-    comingSoon: true,
   },
   { divider: true },
   {
@@ -90,7 +89,6 @@ export const MODULES: ModuleEntry[] = [
     icon: Archive,
     minRole: "member",
     accent: "text-emerald-500",
-    comingSoon: true,
   },
   // {
   //   id: 'governance',

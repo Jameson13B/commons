@@ -10,6 +10,8 @@ import { Profile } from '@/pages/Profile'
 import { Directory } from '@/pages/Directory'
 import { Announcements } from '@/pages/Announcements'
 import { Events } from '@/pages/Events'
+import { Recorder } from '@/pages/Recorder'
+import { Apps } from '@/pages/Apps'
 import { ModulePage } from '@/pages/ModulePage'
 import { NotFound } from '@/pages/NotFound'
 
@@ -27,6 +29,8 @@ function App() {
             <Route path="/m/directory" element={<Directory />} />
             <Route path="/m/announcements" element={<Announcements />} />
             <Route path="/m/events" element={<Events />} />
+            <Route path="/m/recorder" element={<Recorder />} />
+            <Route path="/m/apps" element={<Apps />} />
           </Route>
           <Route path="/m/:moduleId" element={<ModulePage />} />
           <Route element={<RequireRole minRole="admin" />}>
