@@ -5,26 +5,34 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import {
   ArrowLeft,
   CalendarDays,
+  CalendarPlus,
+  Check,
   Clock,
+  HelpCircle,
   MapPin,
   Pencil,
   Plus,
   Trash2,
+  Users,
+  X,
 } from 'lucide-react'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { hasAtLeast } from '@/config/roles'
-import type { CommunityEvent } from '@/lib/types'
+import type { CommunityEvent, EventRsvp, RsvpStatus } from '@/lib/types'
 import {
   formatDay,
   formatTimeRange,
@@ -32,6 +40,8 @@ import {
   monthAbbrev,
   toDateTimeLocalValue,
 } from '@/lib/date'
+import { downloadEventIcs } from '@/lib/ics'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -53,6 +63,22 @@ const EVENTS_COLLECTION = 'events'
 const TITLE_MAX = 140
 const LOCATION_MAX = 200
 const DESC_MAX = 5000
+
+const RSVP_OPTIONS: {
+  status: RsvpStatus
+  label: string
+  icon: typeof Check
+}[] = [
+  { status: 'going', label: 'Going', icon: Check },
+  { status: 'maybe', label: 'Maybe', icon: HelpCircle },
+  { status: 'not_going', label: "Can't go", icon: X },
+]
+
+const RSVP_STATUS_LABEL: Record<RsvpStatus, string> = {
+  going: 'Going',
+  maybe: 'Maybe',
+  not_going: "Can't go",
+}
 
 export function Events() {
   const { user, profile } = useAuth()
@@ -108,7 +134,8 @@ export function Events() {
             Events &amp; Calendar
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Upcoming gatherings, meetings, and shared scheduling.
+            Upcoming gatherings, meetings, and shared scheduling. RSVP and add
+            events to your calendar.
           </p>
         </div>
         {canManage ? (
@@ -189,11 +216,21 @@ function EventCard({
 }) {
   const [deleting, setDeleting] = useState(false)
   const start = event.startAt?.toDate() ?? null
+  const past = Boolean(dimmed)
 
   async function handleDelete() {
     setDeleting(true)
     try {
-      await deleteDoc(doc(db, EVENTS_COLLECTION, event.id))
+      // Clean up RSVP docs before removing the event so we don't leave orphans.
+      const rsvpsSnap = await getDocs(
+        collection(db, EVENTS_COLLECTION, event.id, 'rsvps'),
+      )
+      const batch = writeBatch(db)
+      for (const rsvpDoc of rsvpsSnap.docs) {
+        batch.delete(rsvpDoc.ref)
+      }
+      batch.delete(doc(db, EVENTS_COLLECTION, event.id))
+      await batch.commit()
     } catch (err) {
       console.error(err)
       setDeleting(false)
@@ -258,8 +295,242 @@ function EventCard({
         <p className="mt-2 text-xs text-muted-foreground">
           Organized by {event.createdByName}
         </p>
+
+        <EventRsvpPanel event={event} readOnly={past} />
       </div>
     </Card>
+  )
+}
+
+function EventRsvpPanel({
+  event,
+  readOnly,
+}: {
+  event: CommunityEvent
+  readOnly?: boolean
+}) {
+  const { user, profile } = useAuth()
+  const [rsvps, setRsvps] = useState<EventRsvp[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showGuests, setShowGuests] = useState(false)
+
+  useEffect(() => {
+    const q = query(collection(db, EVENTS_COLLECTION, event.id, 'rsvps'))
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() }) as EventRsvp,
+        )
+        setRsvps(rows)
+        setLoading(false)
+      },
+      (err) => {
+        console.error(err)
+        setError('Could not load RSVPs.')
+        setLoading(false)
+      },
+    )
+    return unsub
+  }, [event.id])
+
+  const myRsvp = useMemo(
+    () => rsvps.find((r) => r.uid === user?.uid) ?? null,
+    [rsvps, user?.uid],
+  )
+
+  const counts = useMemo(() => {
+    const next = { going: 0, maybe: 0, not_going: 0 }
+    for (const r of rsvps) {
+      next[r.status] += 1
+    }
+    return next
+  }, [rsvps])
+
+  const goingList = useMemo(
+    () =>
+      rsvps
+        .filter((r) => r.status === 'going')
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [rsvps],
+  )
+  const maybeList = useMemo(
+    () =>
+      rsvps
+        .filter((r) => r.status === 'maybe')
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [rsvps],
+  )
+
+  const canAddToCalendar =
+    Boolean(event.startAt) &&
+    (myRsvp?.status === 'going' || myRsvp?.status === 'maybe')
+
+  async function setRsvp(status: RsvpStatus) {
+    if (!user || !profile || readOnly || saving) return
+    // Tapping the same status again clears the RSVP.
+    if (myRsvp?.status === status) {
+      setSaving(true)
+      setError(null)
+      try {
+        await deleteDoc(doc(db, EVENTS_COLLECTION, event.id, 'rsvps', user.uid))
+      } catch (err) {
+        console.error(err)
+        setError('Could not update your RSVP. Please try again.')
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    try {
+      await setDoc(doc(db, EVENTS_COLLECTION, event.id, 'rsvps', user.uid), {
+        uid: user.uid,
+        displayName: profile.displayName,
+        status,
+        updatedAt: serverTimestamp(),
+      })
+    } catch (err) {
+      console.error(err)
+      setError('Could not save your RSVP. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleAddToCalendar() {
+    try {
+      downloadEventIcs(event)
+    } catch (err) {
+      console.error(err)
+      setError('Could not create a calendar file for this event.')
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          RSVP
+        </p>
+        {loading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Spinner className="size-3" /> Loading…
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setShowGuests((v) => !v)}
+            aria-expanded={showGuests}
+          >
+            <Users className="size-3.5" />
+            {counts.going} going
+            {counts.maybe > 0 ? ` · ${counts.maybe} maybe` : ''}
+          </button>
+        )}
+      </div>
+
+      <div
+        className="grid grid-cols-3 gap-1.5"
+        role="group"
+        aria-label="RSVP options"
+      >
+        {RSVP_OPTIONS.map(({ status, label, icon: Icon }) => {
+          const selected = myRsvp?.status === status
+          return (
+            <Button
+              key={status}
+              type="button"
+              size="sm"
+              variant={selected ? 'default' : 'outline'}
+              disabled={readOnly || saving || loading || !user}
+              className={cn(
+                'h-9 px-2 text-xs sm:text-sm',
+                selected && status === 'not_going' && 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+              )}
+              onClick={() => void setRsvp(status)}
+              aria-pressed={selected}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </Button>
+          )
+        })}
+      </div>
+
+      {readOnly ? (
+        <p className="text-xs text-muted-foreground">
+          This event has already passed.
+        </p>
+      ) : myRsvp ? (
+        <p className="text-xs text-muted-foreground">
+          You marked{' '}
+          <span className="font-medium text-foreground">
+            {RSVP_STATUS_LABEL[myRsvp.status]}
+          </span>
+          . Tap again to clear.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Let others know if you can make it.
+        </p>
+      )}
+
+      {canAddToCalendar ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="w-full sm:w-auto"
+          onClick={handleAddToCalendar}
+        >
+          <CalendarPlus />
+          Add to calendar
+        </Button>
+      ) : null}
+
+      {showGuests ? (
+        <div className="rounded-md border border-border bg-secondary/30 p-3 text-sm">
+          {goingList.length === 0 && maybeList.length === 0 ? (
+            <p className="text-muted-foreground">No responses yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {goingList.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Going ({goingList.length})
+                  </p>
+                  <ul className="space-y-0.5">
+                    {goingList.map((r) => (
+                      <li key={r.id}>{r.displayName}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {maybeList.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Maybe ({maybeList.length})
+                  </p>
+                  <ul className="space-y-0.5">
+                    {maybeList.map((r) => (
+                      <li key={r.id}>{r.displayName}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+    </div>
   )
 }
 

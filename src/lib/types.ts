@@ -41,6 +41,21 @@ export interface CommunityEvent {
   updatedAt: Timestamp | null
 }
 
+/** How a member responded to an event invitation. */
+export type RsvpStatus = 'going' | 'maybe' | 'not_going'
+
+/**
+ * A member's RSVP stored at `events/{eventId}/rsvps/{uid}`.
+ * Document ID matches the member's auth uid.
+ */
+export interface EventRsvp {
+  id: string
+  uid: string
+  displayName: string
+  status: RsvpStatus
+  updatedAt: Timestamp | null
+}
+
 /** The kinds of official records the community keeps. */
 export type RecordType = 'paper' | 'vote' | 'policy'
 

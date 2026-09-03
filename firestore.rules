@@ -80,7 +80,8 @@ service cloud.firestore {
     }
 
     // Events: readable by any approved member; only moderators/admins can
-    // schedule, edit, or cancel them.
+    // schedule, edit, or cancel them. RSVPs live in a subcollection so any
+    // active member can respond without needing write access to the event.
     match /events/{id} {
       allow read: if isActiveMember();
       allow create: if isModerator()
@@ -95,6 +96,21 @@ service cloud.firestore {
         && request.resource.data.startAt is timestamp;
       allow update: if isModerator();
       allow delete: if isModerator();
+
+      match /rsvps/{uid} {
+        allow read: if isActiveMember();
+        allow create, update: if isActiveMember()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.displayName is string
+          && request.resource.data.displayName.size() > 0
+          && request.resource.data.displayName.size() <= 80
+          && request.resource.data.status in ['going', 'maybe', 'not_going'];
+        // Owners can clear their own RSVP; moderators can remove them when
+        // cancelling an event.
+        allow delete: if (isActiveMember() && request.auth.uid == uid)
+          || isModerator();
+      }
     }
 
     // Records (Community Recorder): official papers, votes, and policies.
