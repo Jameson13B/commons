@@ -12,6 +12,7 @@ import { Announcements } from '@/pages/Announcements'
 import { Events } from '@/pages/Events'
 import { Recorder } from '@/pages/Recorder'
 import { Apps } from '@/pages/Apps'
+import { Consular } from '@/pages/Consular'
 import { ModulePage } from '@/pages/ModulePage'
 import { NotFound } from '@/pages/NotFound'
 
@@ -31,6 +32,7 @@ function App() {
             <Route path="/m/events" element={<Events />} />
             <Route path="/m/recorder" element={<Recorder />} />
             <Route path="/m/apps" element={<Apps />} />
+            <Route path="/m/consular" element={<Consular />} />
           </Route>
           <Route path="/m/:moduleId" element={<ModulePage />} />
           <Route element={<RequireRole minRole="admin" />}>

@@ -136,6 +136,44 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Consular Portal: members' travel board (upcoming trips away from
+    // Commons, or visitors coming to Commons) and community-contributed
+    // travel tips. Both are self-service -- any active member can post; the
+    // owner (or a moderator) can edit/delete, and ownership can't be
+    // reassigned on update.
+    match /consularTrips/{id} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.direction in ['trip', 'visit']
+        && request.resource.data.place is string
+        && request.resource.data.place.size() > 0
+        && request.resource.data.place.size() <= 140
+        && request.resource.data.notes is string
+        && request.resource.data.notes.size() <= 2000
+        && request.resource.data.startAt is timestamp;
+      allow update: if ((isActiveMember() && resource.data.createdBy == request.auth.uid) || isModerator())
+        && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if (isActiveMember() && resource.data.createdBy == request.auth.uid)
+        || isModerator();
+    }
+
+    match /travelTips/{id} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.destination is string
+        && request.resource.data.destination.size() > 0
+        && request.resource.data.destination.size() <= 140
+        && request.resource.data.tip is string
+        && request.resource.data.tip.size() > 0
+        && request.resource.data.tip.size() <= 2000;
+      allow update: if ((isActiveMember() && resource.data.authorUid == request.auth.uid) || isModerator())
+        && request.resource.data.authorUid == resource.data.authorUid;
+      allow delete: if (isActiveMember() && resource.data.authorUid == request.auth.uid)
+        || isModerator();
+    }
+
     // Future community modules add their own collections/rules below.
   }
 }

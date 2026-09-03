@@ -94,3 +94,42 @@ export interface CommunityRecord {
   updatedAt: Timestamp | null
   publishedAt: Timestamp | null
 }
+
+/**
+ * A Consular Portal travel entry: either a member's upcoming trip away from
+ * Commons, or a visitor coming to Commons.
+ */
+export type TripDirection = 'trip' | 'visit'
+
+/**
+ * A travel entry stored at `consularTrips/{id}`. Self-service: any active
+ * member can post their own trips/visits; owners manage their own entries,
+ * moderators can remove any.
+ */
+export interface ConsularTrip {
+  id: string
+  direction: TripDirection
+  /** Destination for a trip, or where a visitor is coming from for a visit. */
+  place: string
+  notes: string
+  startAt: Timestamp | null
+  endAt: Timestamp | null
+  createdBy: string
+  createdByName: string
+  createdAt: Timestamp | null
+  updatedAt: Timestamp | null
+}
+
+/**
+ * A community-contributed travel tip stored at `travelTips/{id}`. Self-service:
+ * any active member can post; owners manage their own, moderators can remove any.
+ */
+export interface TravelTip {
+  id: string
+  destination: string
+  tip: string
+  authorUid: string
+  authorName: string
+  createdAt: Timestamp | null
+  updatedAt: Timestamp | null
+}
