@@ -82,7 +82,6 @@ export const MODULES: ModuleEntry[] = [
     icon: Plane,
     minRole: "member",
     accent: "text-sky-500",
-    comingSoon: true,
   },
   {
     id: "suggestions",
