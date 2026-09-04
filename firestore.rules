@@ -118,6 +118,17 @@ service cloud.firestore {
     // only to admins. Only admins can create, edit, or delete records.
     // NOTE: non-admin clients must query with `where('status','==','published')`
     // so every returned doc satisfies the read rule.
+    //
+    // Witnessing: once any other active member witnesses a published record
+    // (see the `witnesses` subcollection below), it is permanently locked --
+    // not even an admin can edit or delete it. Corrections belong in a new
+    // record. `witnessCount` denormalizes the subcollection's size onto the
+    // parent doc so the lock check here doesn't need a subquery; treat a
+    // missing field as zero for records written before this existed.
+    function recordWitnessCount() {
+      return ('witnessCount' in resource.data) ? resource.data.witnessCount : 0;
+    }
+
     match /records/{id} {
       allow read: if isActiveMember()
         && (resource.data.status == 'published' || isAdmin());
@@ -131,9 +142,36 @@ service cloud.firestore {
         && request.resource.data.summary is string
         && request.resource.data.summary.size() <= 300
         && request.resource.data.body is string
-        && request.resource.data.body.size() <= 20000;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+        && request.resource.data.body.size() <= 20000
+        && request.resource.data.witnessCount == 0;
+      allow update: if (isAdmin() && recordWitnessCount() == 0)
+        || (
+          // Witnessing itself: any active member other than the author may
+          // bump the count by exactly one on a published record, and touch
+          // nothing else on the doc.
+          isActiveMember()
+          && resource.data.status == 'published'
+          && resource.data.authorUid != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['witnessCount'])
+          && request.resource.data.witnessCount == recordWitnessCount() + 1
+        );
+      allow delete: if isAdmin() && recordWitnessCount() == 0;
+
+      // Witnesses: an immutable, append-only attestation log. Doc ID is the
+      // witnessing member's uid, so a second attempt by the same member lands
+      // on `update` (disallowed below) instead of `create`.
+      match /witnesses/{uid} {
+        allow read: if isActiveMember();
+        allow create: if isActiveMember()
+          && request.auth.uid == uid
+          && get(/databases/$(database)/documents/records/$(id)).data.status == 'published'
+          && get(/databases/$(database)/documents/records/$(id)).data.authorUid != request.auth.uid
+          && request.resource.data.uid == uid
+          && request.resource.data.displayName is string
+          && request.resource.data.displayName.size() > 0
+          && request.resource.data.displayName.size() <= 80;
+        allow update, delete: if false;
+      }
     }
 
     // Consular Portal: members' travel board (upcoming trips away from

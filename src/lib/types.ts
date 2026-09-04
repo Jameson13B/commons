@@ -93,6 +93,25 @@ export interface CommunityRecord {
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
   publishedAt: Timestamp | null
+  /**
+   * Number of members who have witnessed this record (denormalized count of
+   * the `witnesses` subcollection). Once above zero the record is locked --
+   * `firestore.rules` refuses further edits or deletes; corrections must be
+   * captured as a new record instead.
+   */
+  witnessCount: number
+}
+
+/**
+ * A member's attestation to a record, stored at
+ * `records/{recordId}/witnesses/{uid}`. Doc ID is the witnessing member's
+ * uid, so a member can witness a given record at most once.
+ */
+export interface RecordWitness {
+  id: string
+  uid: string
+  displayName: string
+  witnessedAt: Timestamp | null
 }
 
 /**

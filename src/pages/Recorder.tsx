@@ -11,8 +11,10 @@ import {
   collection,
   deleteDoc,
   doc,
+  increment,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   Timestamp,
   updateDoc,
@@ -23,10 +25,12 @@ import {
   ArrowLeft,
   FileText,
   Gavel,
+  Lock,
   Pencil,
   Plus,
   Scale,
   Search,
+  ShieldCheck,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -37,6 +41,7 @@ import type {
   CommunityRecord,
   RecordStatus,
   RecordType,
+  RecordWitness,
   VoteOutcome,
 } from '@/lib/types'
 import { formatDateOnly, toDateInputValue } from '@/lib/date'
@@ -60,6 +65,7 @@ import {
 } from '@/components/ui/dialog'
 
 const RECORDS_COLLECTION = 'records'
+const WITNESSES_SUBCOLLECTION = 'witnesses'
 const TITLE_MAX = 160
 const REF_MAX = 40
 const SUMMARY_MAX = 300
@@ -312,6 +318,117 @@ function VoteTally({ record }: { record: CommunityRecord }) {
   )
 }
 
+function WitnessPanel({ record }: { record: CommunityRecord }) {
+  const { user, profile } = useAuth()
+  const [witnesses, setWitnesses] = useState<RecordWitness[]>([])
+  const [loading, setLoading] = useState(true)
+  const [witnessing, setWitnessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const q = query(
+      collection(db, RECORDS_COLLECTION, record.id, WITNESSES_SUBCOLLECTION),
+    )
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() }) as RecordWitness,
+        )
+        rows.sort(
+          (a, b) =>
+            (a.witnessedAt?.toMillis() ?? 0) - (b.witnessedAt?.toMillis() ?? 0),
+        )
+        setWitnesses(rows)
+        setLoading(false)
+      },
+      (err) => {
+        console.error(err)
+        setLoading(false)
+      },
+    )
+    return unsub
+  }, [record.id])
+
+  const myWitness = useMemo(
+    () => witnesses.find((w) => w.uid === user?.uid) ?? null,
+    [witnesses, user?.uid],
+  )
+
+  const isAuthor = record.authorUid === user?.uid
+  const canWitness = Boolean(
+    user && profile && record.status === 'published' && !isAuthor && !myWitness,
+  )
+
+  async function handleWitness() {
+    if (!user || !profile || witnessing) return
+    setWitnessing(true)
+    setError(null)
+    try {
+      const recordRef = doc(db, RECORDS_COLLECTION, record.id)
+      const witnessRef = doc(
+        db,
+        RECORDS_COLLECTION,
+        record.id,
+        WITNESSES_SUBCOLLECTION,
+        user.uid,
+      )
+      // Bump the parent's witnessCount and create the witness doc together so
+      // the two never drift: the transaction fails whole if either write is
+      // rejected (e.g. someone else's witness already locked the record, or
+      // this member already witnessed it).
+      await runTransaction(db, async (tx) => {
+        tx.update(recordRef, { witnessCount: increment(1) })
+        tx.set(witnessRef, {
+          uid: user.uid,
+          displayName: profile.displayName,
+          witnessedAt: serverTimestamp(),
+        })
+      })
+    } catch (err) {
+      console.error(err)
+      setError('Could not record your witness. Please try again.')
+    } finally {
+      setWitnessing(false)
+    }
+  }
+
+  if (record.status !== 'published') return null
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+      <ShieldCheck
+        className={`size-4 shrink-0 ${
+          witnesses.length > 0 ? 'text-emerald-500' : 'text-muted-foreground'
+        }`}
+      />
+      <span className="text-xs text-muted-foreground">
+        {loading
+          ? 'Loading witnesses...'
+          : witnesses.length === 0
+            ? 'Not yet witnessed'
+            : `Witnessed by ${witnesses.map((w) => w.displayName).join(', ')}`}
+      </span>
+      {canWitness ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1.5"
+          onClick={handleWitness}
+          disabled={witnessing}
+        >
+          {witnessing ? <Spinner /> : <ShieldCheck className="size-3.5" />}
+          Witness this record
+        </Button>
+      ) : null}
+      {error ? (
+        <span className="w-full text-xs text-destructive">{error}</span>
+      ) : null}
+    </div>
+  )
+}
+
 function RecordCard({
   record,
   isAdmin,
@@ -323,6 +440,7 @@ function RecordCard({
   const [deleting, setDeleting] = useState(false)
   const meta = TYPE_META[record.type]
   const isDraft = record.status === 'draft'
+  const isLocked = (record.witnessCount ?? 0) > 0
 
   async function handleDelete() {
     setDeleting(true)
@@ -355,6 +473,11 @@ function RecordCard({
               </Badge>
             ) : null}
             {isDraft ? <Badge variant="warning">Draft</Badge> : null}
+            {isLocked ? (
+              <Badge variant="outline" className="gap-1">
+                <Lock className="size-3" /> Witnessed &amp; locked
+              </Badge>
+            ) : null}
           </div>
 
           <button
@@ -394,9 +517,11 @@ function RecordCard({
               Read full record
             </Button>
           </div>
+
+          <WitnessPanel record={record} />
         </div>
 
-        {isAdmin ? (
+        {isAdmin && !isLocked ? (
           <div className="flex shrink-0 items-center gap-0.5">
             <RecordFormDialog mode="edit" record={record} />
             <DeleteDialog
@@ -427,6 +552,7 @@ function RecordDetailDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const meta = TYPE_META[record.type]
+  const isLocked = (record.witnessCount ?? 0) > 0
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -443,6 +569,11 @@ function RecordDetailDialog({
             ) : null}
             {record.status === 'draft' ? (
               <Badge variant="warning">Draft</Badge>
+            ) : null}
+            {isLocked ? (
+              <Badge variant="outline" className="gap-1">
+                <Lock className="size-3" /> Witnessed &amp; locked
+              </Badge>
             ) : null}
           </div>
           <DialogTitle className="mt-2 text-xl">{record.title}</DialogTitle>
@@ -553,6 +684,10 @@ function RecordFormDialog(props: RecordFormProps) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!canSubmit) return
+    if (isEdit && existing && (existing.witnessCount ?? 0) > 0) {
+      setError('This record has been witnessed and can no longer be edited.')
+      return
+    }
     setError(null)
 
     const dateTs = recordDate
@@ -591,6 +726,7 @@ function RecordFormDialog(props: RecordFormProps) {
           ...payload,
           authorUid: props.authorUid,
           authorName: props.authorName,
+          witnessCount: 0,
           createdAt: serverTimestamp(),
           publishedAt: status === 'published' ? serverTimestamp() : null,
         })
