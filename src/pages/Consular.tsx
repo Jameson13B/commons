@@ -14,26 +14,26 @@ import {
 } from 'firebase/firestore'
 import {
   ArrowLeft,
+  Check,
   Lightbulb,
   MapPin,
   Pencil,
   Plane,
-  PlaneLanding,
-  PlaneTakeoff,
   Plus,
+  Stamp,
   Trash2,
+  X,
 } from 'lucide-react'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/hooks/useAuth'
 import { hasAtLeast } from '@/config/roles'
-import type { ConsularTrip, TravelTip, TripDirection } from '@/lib/types'
+import type { ConsularTrip, GuestVisaApplication, TravelTip, VisaStatus } from '@/lib/types'
 import { formatDateOnly, toDateInputValue } from '@/lib/date'
-import { Badge } from '@/components/ui/badge'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -49,29 +49,19 @@ import {
 
 const TRIPS_COLLECTION = 'consularTrips'
 const TIPS_COLLECTION = 'travelTips'
+const VISAS_COLLECTION = 'guestVisas'
 const PLACE_MAX = 140
 const NOTES_MAX = 2000
 const TIP_MAX = 2000
+const PURPOSE_MAX = 2000
 
-const DIRECTION_META: Record<
-  TripDirection,
-  { label: string; verb: string; icon: typeof PlaneTakeoff; accent: string }
-> = {
-  trip: {
-    label: 'Traveling',
-    verb: 'to',
-    icon: PlaneTakeoff,
-    accent: 'text-sky-500',
-  },
-  visit: {
-    label: 'Visiting',
-    verb: 'from',
-    icon: PlaneLanding,
-    accent: 'text-emerald-500',
-  },
+const VISA_STATUS_META: Record<VisaStatus, { label: string; variant: BadgeProps['variant'] }> = {
+  pending: { label: 'Pending review', variant: 'warning' },
+  approved: { label: 'Approved', variant: 'success' },
+  denied: { label: 'Denied', variant: 'destructive' },
 }
 
-type SectionTab = 'board' | 'tips'
+type SectionTab = 'board' | 'tips' | 'visas'
 
 export function Consular() {
   const { user, profile } = useAuth()
@@ -85,7 +75,12 @@ export function Consular() {
   const [tipsLoading, setTipsLoading] = useState(true)
   const [tipsError, setTipsError] = useState<string | null>(null)
 
+  const [visas, setVisas] = useState<GuestVisaApplication[]>([])
+  const [visasLoading, setVisasLoading] = useState(true)
+  const [visasError, setVisasError] = useState<string | null>(null)
+
   const canModerate = hasAtLeast(profile?.role, 'moderator')
+  const isAdmin = hasAtLeast(profile?.role, 'admin')
 
   useEffect(() => {
     const q = query(collection(db, TRIPS_COLLECTION), orderBy('startAt', 'asc'))
@@ -116,6 +111,23 @@ export function Consular() {
         console.error(err)
         setTipsError('Could not load travel tips. Check your access level.')
         setTipsLoading(false)
+      },
+    )
+    return unsub
+  }, [])
+
+  useEffect(() => {
+    const q = query(collection(db, VISAS_COLLECTION), orderBy('createdAt', 'desc'))
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setVisas(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as GuestVisaApplication))
+        setVisasLoading(false)
+      },
+      (err) => {
+        console.error(err)
+        setVisasError('Could not load guest visas. Check your access level.')
+        setVisasLoading(false)
       },
     )
     return unsub
@@ -158,11 +170,16 @@ export function Consular() {
             authorName={profile?.displayName ?? 'Unknown'}
             authorUid={user?.uid ?? ''}
           />
-        ) : (
+        ) : tab === 'tips' ? (
           <TipFormDialog
             mode="create"
             authorName={profile?.displayName ?? 'Unknown'}
             authorUid={user?.uid ?? ''}
+          />
+        ) : (
+          <VisaFormDialog
+            submittedByName={profile?.displayName ?? 'Unknown'}
+            submittedBy={user?.uid ?? ''}
           />
         )}
       </div>
@@ -186,6 +203,15 @@ export function Consular() {
         >
           <Lightbulb className="size-3.5" /> Travel tips
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={tab === 'visas' ? 'default' : 'outline'}
+          onClick={() => setTab('visas')}
+          className="h-8 gap-1.5"
+        >
+          <Stamp className="size-3.5" /> Guest visas
+        </Button>
       </div>
 
       {tab === 'board' ? (
@@ -197,13 +223,23 @@ export function Consular() {
           myUid={user?.uid ?? null}
           canModerate={canModerate}
         />
-      ) : (
+      ) : tab === 'tips' ? (
         <TravelTips
           loading={tipsLoading}
           error={tipsError}
           tips={tips}
           myUid={user?.uid ?? null}
           canModerate={canModerate}
+        />
+      ) : (
+        <GuestVisas
+          loading={visasLoading}
+          error={visasError}
+          visas={visas}
+          myUid={user?.uid ?? null}
+          isAdmin={isAdmin}
+          reviewerUid={user?.uid ?? ''}
+          reviewerName={profile?.displayName ?? 'Unknown'}
         />
       )}
     </div>
@@ -241,7 +277,7 @@ function TravelBoard({
         <Plane className="size-6 text-muted-foreground" />
         <p className="font-medium">No trips on the board yet</p>
         <p className="text-sm text-muted-foreground">
-          Post an upcoming vacation or an incoming visitor to Commons.
+          Post an upcoming vacation to let the community know.
         </p>
       </Card>
     )
@@ -300,7 +336,6 @@ function TripCard({
   dimmed?: boolean
 }) {
   const [deleting, setDeleting] = useState(false)
-  const meta = DIRECTION_META[trip.direction]
   const isOwner = myUid != null && myUid === trip.createdBy
   const canManage = isOwner || canModerate
 
@@ -316,28 +351,20 @@ function TripCard({
 
   return (
     <Card className={`flex gap-4 p-4 sm:p-5 ${dimmed ? 'opacity-70' : ''}`}>
-      <div
-        className={`hidden size-10 shrink-0 place-items-center rounded-lg bg-accent sm:grid ${meta.accent}`}
-      >
-        <meta.icon className="size-5" />
+      <div className="hidden size-10 shrink-0 place-items-center rounded-lg bg-accent text-sky-500 sm:grid">
+        <Plane className="size-5" />
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Badge variant="outline" className="gap-1">
-              <meta.icon className={`size-3 sm:hidden ${meta.accent}`} />
-              {meta.label}
-            </Badge>
-            <h3 className="min-w-0 font-semibold leading-tight">
-              {meta.verb} {trip.place}
-            </h3>
-          </div>
+          <h3 className="min-w-0 font-semibold leading-tight">
+            Traveling to {trip.place}
+          </h3>
           {canManage ? (
             <div className="flex shrink-0 items-center gap-0.5">
               <TripFormDialog mode="edit" trip={trip} />
               <DeleteDialog
-                title={`${meta.label.toLowerCase()} ${meta.verb} ${trip.place}`}
+                title={`the trip to ${trip.place}`}
                 onConfirm={handleDelete}
                 deleting={deleting}
                 label="trip"
@@ -377,7 +404,6 @@ function TripFormDialog(props: TripFormProps) {
   const existing = isEdit ? props.trip : null
 
   const [open, setOpen] = useState(false)
-  const [direction, setDirection] = useState<TripDirection>('trip')
   const [place, setPlace] = useState('')
   const [notes, setNotes] = useState('')
   const [start, setStart] = useState('')
@@ -386,7 +412,6 @@ function TripFormDialog(props: TripFormProps) {
   const [error, setError] = useState<string | null>(null)
 
   function hydrate() {
-    setDirection(existing?.direction ?? 'trip')
     setPlace(existing?.place ?? '')
     setNotes(existing?.notes ?? '')
     setStart(existing?.startAt ? toDateInputValue(existing.startAt.toDate()) : '')
@@ -426,7 +451,6 @@ function TripFormDialog(props: TripFormProps) {
     try {
       if (isEdit && existing) {
         await updateDoc(doc(db, TRIPS_COLLECTION, existing.id), {
-          direction,
           place: trimmedPlace,
           notes: notes.trim(),
           startAt: Timestamp.fromDate(startDate),
@@ -435,7 +459,6 @@ function TripFormDialog(props: TripFormProps) {
         })
       } else if (props.mode === 'create') {
         await addDoc(collection(db, TRIPS_COLLECTION), {
-          direction,
           place: trimmedPlace,
           notes: notes.trim(),
           startAt: Timestamp.fromDate(startDate),
@@ -484,29 +507,15 @@ function TripFormDialog(props: TripFormProps) {
           <DialogDescription>
             {isEdit
               ? 'Update the details of this trip.'
-              : 'Share an upcoming vacation, or a visitor coming to Commons.'}
+              : 'Share an upcoming vacation away from Commons.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="trip-direction">Type</Label>
-            <Select
-              id="trip-direction"
-              value={direction}
-              onChange={(e) => setDirection(e.target.value as TripDirection)}
-            >
-              <option value="trip">I&apos;m traveling away from Commons</option>
-              <option value="visit">Someone is visiting Commons</option>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="trip-place">
-              {direction === 'trip' ? 'Destination' : "Visitor's origin"}
-            </Label>
+            <Label htmlFor="trip-place">Destination</Label>
             <Input
               id="trip-place"
-              placeholder={direction === 'trip' ? 'Lisbon, Portugal' : 'Austin, Texas'}
+              placeholder="Lisbon, Portugal"
               value={place}
               maxLength={PLACE_MAX}
               onChange={(e) => setPlace(e.target.value)}
@@ -799,6 +808,372 @@ function TipFormDialog(props: TipFormProps) {
             <Button type="submit" disabled={!canSubmit}>
               {submitting ? <Spinner /> : null}
               {submitting ? 'Saving...' : isEdit ? 'Save changes' : 'Post tip'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function GuestVisas({
+  loading,
+  error,
+  visas,
+  myUid,
+  isAdmin,
+  reviewerUid,
+  reviewerName,
+}: {
+  loading: boolean
+  error: string | null
+  visas: GuestVisaApplication[]
+  myUid: string | null
+  isAdmin: boolean
+  reviewerUid: string
+  reviewerName: string
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+        <Spinner /> Loading guest visas...
+      </div>
+    )
+  }
+  if (error) {
+    return <Card className="p-10 text-center text-sm text-destructive">{error}</Card>
+  }
+  if (visas.length === 0) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-12 text-center">
+        <Stamp className="size-6 text-muted-foreground" />
+        <p className="font-medium">No guest visa applications yet</p>
+        <p className="text-sm text-muted-foreground">
+          {isAdmin
+            ? 'Applications submitted by members will appear here for review.'
+            : 'Submit an application for a guest visiting Commons.'}
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {visas.map((visa) => (
+        <VisaCard
+          key={visa.id}
+          visa={visa}
+          myUid={myUid}
+          isAdmin={isAdmin}
+          reviewerUid={reviewerUid}
+          reviewerName={reviewerName}
+        />
+      ))}
+    </div>
+  )
+}
+
+function VisaCard({
+  visa,
+  myUid,
+  isAdmin,
+  reviewerUid,
+  reviewerName,
+}: {
+  visa: GuestVisaApplication
+  myUid: string | null
+  isAdmin: boolean
+  reviewerUid: string
+  reviewerName: string
+}) {
+  const [reviewing, setReviewing] = useState<VisaStatus | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const isOwner = myUid != null && myUid === visa.submittedBy
+  const isPending = visa.status === 'pending'
+  const meta = VISA_STATUS_META[visa.status]
+
+  async function review(status: 'approved' | 'denied') {
+    setReviewing(status)
+    try {
+      await updateDoc(doc(db, VISAS_COLLECTION, visa.id), {
+        status,
+        reviewedBy: reviewerUid,
+        reviewedByName: reviewerName,
+        updatedAt: serverTimestamp(),
+      })
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await deleteDoc(doc(db, VISAS_COLLECTION, visa.id))
+    } catch (err) {
+      console.error(err)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={meta.variant}>{meta.label}</Badge>
+          </div>
+          <h3 className="mt-2 font-semibold leading-tight">{visa.guestName}</h3>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            {visa.origin ? (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5" />
+                From {visa.origin}
+              </span>
+            ) : null}
+            <span>
+              {formatDateOnly(visa.startAt)}
+              {visa.endAt ? ` – ${formatDateOnly(visa.endAt)}` : ''}
+            </span>
+          </div>
+        </div>
+
+        {(isOwner && isPending) || isAdmin ? (
+          <DeleteDialog
+            title={`the visa application for ${visa.guestName}`}
+            onConfirm={handleDelete}
+            deleting={deleting}
+            label="application"
+          />
+        ) : null}
+      </div>
+
+      {visa.purpose ? (
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+          {visa.purpose}
+        </p>
+      ) : null}
+
+      <p className="mt-2 text-xs text-muted-foreground">
+        Submitted by {visa.submittedByName}
+        {visa.reviewedByName ? ` · Reviewed by ${visa.reviewedByName}` : ''}
+      </p>
+
+      {isAdmin && isPending ? (
+        <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={reviewing !== null}
+            onClick={() => void review('approved')}
+            className="gap-1.5"
+          >
+            {reviewing === 'approved' ? <Spinner className="size-3.5" /> : <Check className="size-3.5" />}
+            Approve
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={reviewing !== null}
+            onClick={() => void review('denied')}
+            className="gap-1.5 text-destructive hover:text-destructive"
+          >
+            {reviewing === 'denied' ? <Spinner className="size-3.5" /> : <X className="size-3.5" />}
+            Deny
+          </Button>
+        </div>
+      ) : null}
+    </Card>
+  )
+}
+
+function VisaFormDialog({
+  submittedBy,
+  submittedByName,
+}: {
+  submittedBy: string
+  submittedByName: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [guestName, setGuestName] = useState('')
+  const [origin, setOrigin] = useState('')
+  const [purpose, setPurpose] = useState('')
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function reset() {
+    setGuestName('')
+    setOrigin('')
+    setPurpose('')
+    setStart('')
+    setEnd('')
+    setError(null)
+    setSubmitting(false)
+  }
+
+  const trimmedGuestName = guestName.trim()
+  const canSubmit = trimmedGuestName.length > 0 && start !== '' && !submitting
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setError(null)
+
+    const startDate = new Date(`${start}T00:00:00`)
+    if (Number.isNaN(startDate.getTime())) {
+      setError('Please choose a valid start date.')
+      return
+    }
+    let endTs: Timestamp | null = null
+    if (end) {
+      const endDate = new Date(`${end}T00:00:00`)
+      if (Number.isNaN(endDate.getTime())) {
+        setError('Please choose a valid end date.')
+        return
+      }
+      if (endDate.getTime() < startDate.getTime()) {
+        setError('The end date cannot be before the start date.')
+        return
+      }
+      endTs = Timestamp.fromDate(endDate)
+    }
+
+    setSubmitting(true)
+    try {
+      await addDoc(collection(db, VISAS_COLLECTION), {
+        guestName: trimmedGuestName,
+        origin: origin.trim(),
+        purpose: purpose.trim(),
+        startAt: Timestamp.fromDate(startDate),
+        endAt: endTs,
+        status: 'pending',
+        submittedBy,
+        submittedByName,
+        reviewedBy: null,
+        reviewedByName: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      reset()
+      setOpen(false)
+    } catch (err) {
+      console.error(err)
+      setError('Could not submit the application. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) reset()
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button className="w-full sm:w-auto">
+          <Plus /> New visa application
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New guest visa application</DialogTitle>
+          <DialogDescription>
+            Submit a request for a guest visiting Commons. An admin will
+            review it.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="visa-guest">Guest name</Label>
+            <Input
+              id="visa-guest"
+              placeholder="Jordan Rivera"
+              value={guestName}
+              maxLength={PLACE_MAX}
+              onChange={(e) => setGuestName(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="visa-origin">
+              Coming from{' '}
+              <span className="font-normal text-muted-foreground">
+                (optional)
+              </span>
+            </Label>
+            <Input
+              id="visa-origin"
+              placeholder="Austin, Texas"
+              value={origin}
+              maxLength={PLACE_MAX}
+              onChange={(e) => setOrigin(e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="visa-start">Arriving</Label>
+              <Input
+                id="visa-start"
+                type="date"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="visa-end">
+                Departing{' '}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="visa-end"
+                type="date"
+                value={end}
+                min={start || undefined}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="visa-purpose">
+              Purpose of visit{' '}
+              <span className="font-normal text-muted-foreground">
+                (optional)
+              </span>
+            </Label>
+            <Textarea
+              id="visa-purpose"
+              placeholder="Why is this guest visiting Commons?"
+              value={purpose}
+              maxLength={PURPOSE_MAX}
+              rows={4}
+              onChange={(e) => setPurpose(e.target.value)}
+            />
+          </div>
+
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={!canSubmit}>
+              {submitting ? <Spinner /> : null}
+              {submitting ? 'Submitting...' : 'Submit application'}
             </Button>
           </DialogFooter>
         </form>

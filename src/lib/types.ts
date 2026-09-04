@@ -96,20 +96,13 @@ export interface CommunityRecord {
 }
 
 /**
- * A Consular Portal travel entry: either a member's upcoming trip away from
- * Commons, or a visitor coming to Commons.
- */
-export type TripDirection = 'trip' | 'visit'
-
-/**
- * A travel entry stored at `consularTrips/{id}`. Self-service: any active
- * member can post their own trips/visits; owners manage their own entries,
- * moderators can remove any.
+ * A member's upcoming trip away from Commons, stored at `consularTrips/{id}`.
+ * Self-service: any active member can post their own trips; owners manage
+ * their own entries, moderators can remove any.
  */
 export interface ConsularTrip {
   id: string
-  direction: TripDirection
-  /** Destination for a trip, or where a visitor is coming from for a visit. */
+  /** Trip destination. */
   place: string
   notes: string
   startAt: Timestamp | null
@@ -130,6 +123,32 @@ export interface TravelTip {
   tip: string
   authorUid: string
   authorName: string
+  createdAt: Timestamp | null
+  updatedAt: Timestamp | null
+}
+
+/** Lifecycle of a guest visa application: pending review, approved, or denied. */
+export type VisaStatus = 'pending' | 'approved' | 'denied'
+
+/**
+ * A guest visa application for a visitor coming to Commons, stored at
+ * `guestVisas/{id}`. Any active member can submit one for review; only
+ * admins can approve or deny it. The submitter (while still pending) or an
+ * admin can withdraw it.
+ */
+export interface GuestVisaApplication {
+  id: string
+  guestName: string
+  /** Where the guest is traveling from. */
+  origin: string
+  purpose: string
+  startAt: Timestamp | null
+  endAt: Timestamp | null
+  status: VisaStatus
+  submittedBy: string
+  submittedByName: string
+  reviewedBy: string | null
+  reviewedByName: string | null
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
 }
