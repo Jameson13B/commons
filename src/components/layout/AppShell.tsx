@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { hasAtLeast } from '@/config/roles'
 import { brand } from '@/config/brand'
 import {
   accessibleEntries,
@@ -66,6 +67,8 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { profile } = useAuth()
+  const canViewChangelog = hasAtLeast(profile?.role, 'moderator')
 
   return (
     <div className="min-h-screen bg-background">
@@ -78,7 +81,18 @@ export function AppShell() {
           <NavItems />
         </div>
         <p className="px-3 pt-4 text-xs text-muted-foreground">
-          {brand.name} · v{brand.version}
+          {canViewChangelog ? (
+            <Link
+              to="/changelog"
+              className="transition-colors hover:text-foreground hover:underline"
+            >
+              {brand.name} · v{brand.version}
+            </Link>
+          ) : (
+            <span>
+              {brand.name} · v{brand.version}
+            </span>
+          )}
         </p>
       </aside>
 
