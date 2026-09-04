@@ -13,6 +13,7 @@ import { Events } from '@/pages/Events'
 import { Recorder } from '@/pages/Recorder'
 import { Apps } from '@/pages/Apps'
 import { Consular } from '@/pages/Consular'
+import { Changelog } from '@/pages/Changelog'
 import { ModulePage } from '@/pages/ModulePage'
 import { NotFound } from '@/pages/NotFound'
 
@@ -35,6 +36,9 @@ function App() {
             <Route path="/m/consular" element={<Consular />} />
           </Route>
           <Route path="/m/:moduleId" element={<ModulePage />} />
+          <Route element={<RequireRole minRole="moderator" />}>
+            <Route path="/changelog" element={<Changelog />} />
+          </Route>
           <Route element={<RequireRole minRole="admin" />}>
             <Route path="/admin" element={<Admin />} />
           </Route>

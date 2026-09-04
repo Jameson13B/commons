@@ -11,4 +11,5 @@ export const brand = {
   tagline: "The operating system for our future community",
   description:
     "A private intranet where members access the tools and systems that run our community.",
+  version: "0.2.0",
 } as const

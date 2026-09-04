@@ -137,15 +137,13 @@ service cloud.firestore {
     }
 
     // Consular Portal: members' travel board (upcoming trips away from
-    // Commons, or visitors coming to Commons) and community-contributed
-    // travel tips. Both are self-service -- any active member can post; the
-    // owner (or a moderator) can edit/delete, and ownership can't be
-    // reassigned on update.
+    // Commons) and community-contributed travel tips. Both are self-service
+    // -- any active member can post; the owner (or a moderator) can
+    // edit/delete, and ownership can't be reassigned on update.
     match /consularTrips/{id} {
       allow read: if isActiveMember();
       allow create: if isActiveMember()
         && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.direction in ['trip', 'visit']
         && request.resource.data.place is string
         && request.resource.data.place.size() > 0
         && request.resource.data.place.size() <= 140
@@ -172,6 +170,38 @@ service cloud.firestore {
         && request.resource.data.authorUid == resource.data.authorUid;
       allow delete: if (isActiveMember() && resource.data.authorUid == request.auth.uid)
         || isModerator();
+    }
+
+    // Guest visa applications: any active member can submit one for a
+    // visitor coming to Commons. Only admins can approve/deny (status moves
+    // out of 'pending'); the submitter can otherwise edit their own request
+    // only while it's still pending, and can't touch status or ownership.
+    // The submitter (while pending) or an admin can withdraw/delete it.
+    match /guestVisas/{id} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember()
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.guestName is string
+        && request.resource.data.guestName.size() > 0
+        && request.resource.data.guestName.size() <= 140
+        && request.resource.data.origin is string
+        && request.resource.data.origin.size() <= 140
+        && request.resource.data.purpose is string
+        && request.resource.data.purpose.size() <= 2000
+        && request.resource.data.startAt is timestamp;
+      allow update: if isAdmin()
+        || (
+          isActiveMember()
+          && resource.data.submittedBy == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.submittedBy == resource.data.submittedBy
+          && request.resource.data.reviewedBy == null
+        );
+      allow delete: if (isActiveMember() && resource.data.submittedBy == request.auth.uid && resource.data.status == 'pending')
+        || isAdmin();
     }
 
     // Future community modules add their own collections/rules below.
