@@ -78,7 +78,7 @@ export function AppShell() {
           <NavItems />
         </div>
         <p className="px-3 pt-4 text-xs text-muted-foreground">
-          {brand.name} · v0.1
+          {brand.name} · v{brand.version}
         </p>
       </aside>
 
