@@ -110,3 +110,12 @@ color tokens live in `src/index.css`.
 with `react/rules-of-hooks` as an error. TypeScript itself runs in strict-ish
 mode with `noUnusedLocals`/`noUnusedParameters`/`noFallthroughCasesInSwitch`
 enabled (`tsconfig.app.json`) — `npm run build` will fail on these.
+
+## Before merging any PR
+
+ALWAYS update `CHANGELOG.md` and bump the `version` field in `package.json`
+as part of the PR — no exceptions. Add an entry under `## [Unreleased]`
+(Keep a Changelog categories: Added/Changed/Fixed/Removed) describing the
+change, and bump the version using semver (patch for fixes, minor for
+features, major for breaking changes). Do this in the same PR as the code
+change, not as a follow-up.
